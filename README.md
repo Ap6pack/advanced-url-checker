@@ -47,7 +47,7 @@ A high-performance, multi-threaded Python tool for validating URL availability w
 ### Setup
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/advanced-url-checker.git
+git clone https://github.com/Ap6pack/advanced-url-checker.git
 cd advanced-url-checker
 
 # Make executable (optional)
