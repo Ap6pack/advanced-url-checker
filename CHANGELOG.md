@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2025-07-04
+
+### Security
+- **CRITICAL**: Replaced subprocess/curl implementation with secure requests library to eliminate command injection vulnerabilities
+- **CRITICAL**: Implemented comprehensive URL validation to prevent SSRF attacks by blocking private/local IP addresses
+- **CRITICAL**: Added path traversal protection for output file paths using pathlib
+- Enhanced input validation using validators library for proper URL format checking
+- Implemented URL length limits (MAX_URL_LENGTH = 2048) to prevent buffer overflow attacks
+- Added secure session management with connection pooling and proper SSL/TLS verification
+- Implemented manual redirect handling with security validation for each redirect
+- Added protection against redirect loops with MAX_REDIRECTS limit
+- Enhanced error handling to prevent information disclosure in error messages
+- Implemented proper authentication handling without exposing credentials in logs
+
+### Changed
+- Migrated from subprocess/curl to requests library for all HTTP operations
+- Refactored URL validation to use validators library with security checks
+- Updated progress display to use tqdm library with colored output
+- Enhanced error classification for requests-based exceptions
+- Improved session management with connection pooling for better performance
+- Updated all dependencies to use the libraries specified in requirements.txt
+
+### Added
+- Support for environment variables using python-dotenv
+- Colored terminal output using colorama for better visibility
+- Enhanced progress bars using tqdm library
+- Type hints for better code maintainability
+- Security constants for blocked networks and URL limits
 
 ## [1.2.0] - 2025-07-02
 

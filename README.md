@@ -6,10 +6,18 @@ A high-performance, multi-threaded Python tool for validating URL availability w
 
 ## Features
 
+### 🛡️ **Security-First Design**
+- Built with secure `requests` library (no subprocess/curl vulnerabilities)
+- Comprehensive input validation to prevent SSRF attacks
+- Blocks private/local IP addresses (10.x.x.x, 192.168.x.x, 127.x.x.x, etc.)
+- Path traversal protection for output files
+- SSL/TLS certificate verification enforced
+- Safe redirect handling with validation
+
 ### 🚀 **High Performance**
 - Multi-threaded processing with configurable concurrency
-- ThreadPoolExecutor for optimal resource management
-- Real-time progress tracking with ETA
+- Connection pooling for optimal performance
+- Real-time progress tracking with colored output (tqdm)
 - Processing rate monitoring
 
 ### 🔄 **Intelligent Retry Logic**
@@ -37,12 +45,13 @@ A high-performance, multi-threaded Python tool for validating URL availability w
 - Configurable timeouts and user agents
 - Dry-run mode for validation
 - Append mode for incremental checking
+- Environment variable support via .env files
 
 ## Installation
 
 ### Prerequisites
 - Python 3.9+
-- `curl` command-line tool
+- pip (Python package manager)
 
 ### Setup
 ```bash
@@ -50,24 +59,32 @@ A high-performance, multi-threaded Python tool for validating URL availability w
 git clone https://github.com/Ap6pack/advanced-url-checker.git
 cd advanced-url-checker
 
+# Install required dependencies
+pip install -r requirements.txt
+
 # Make executable (optional)
-chmod +x url_checker.py
+chmod +x endpoint_checker.py
 ```
 
-No additional Python packages required - uses only standard library!
+### Required Dependencies
+- `requests` - Secure HTTP library for making requests
+- `validators` - URL validation and security checks
+- `python-dotenv` - Environment variable support
+- `colorama` - Cross-platform colored terminal output
+- `tqdm` - Progress bar functionality
 
 ## Quick Start
 
 ### Basic Usage
 ```bash
 # Check URLs from a file
-python url_checker.py urls.txt
+python endpoint_checker.py urls.txt
 
 # Use 20 threads for faster processing
-python url_checker.py urls.txt -t 20
+python endpoint_checker.py urls.txt -t 20
 
 # JSON output with custom filename
-python url_checker.py urls.txt -o results.json --json
+python endpoint_checker.py urls.txt -o results.json --json
 ```
 
 ### Input File Format
@@ -118,34 +135,34 @@ URLs without schemes will automatically get `http://` prepended.
 ### Web Reconnaissance
 ```bash
 # Check URLs from waymore output
-python url_checker.py waymore_results.txt -t 15 -r 3 --quiet
+python endpoint_checker.py waymore_results.txt -t 15 -r 3 --quiet
 
 # Fast connectivity check with HEAD requests
-python url_checker.py targets.txt --method HEAD -t 25 -o connectivity.txt
+python endpoint_checker.py targets.txt --method HEAD -t 25 -o connectivity.txt
 ```
 
 ### Link Validation
 ```bash
 # Comprehensive check with detailed logging
-python url_checker.py website_links.txt --verbose -o validation_report.json --json
+python endpoint_checker.py website_links.txt --verbose -o validation_report.json --json
 
 # Quick validation with custom timeout
-python url_checker.py links.txt --timeout 5 --connect-timeout 2
+python endpoint_checker.py links.txt --timeout 5 --connect-timeout 2
 ```
 
 ### API Endpoint Testing
 ```bash
 # Test API endpoints with authentication
-python url_checker.py api_endpoints.txt --auth "user:pass" --header "Content-Type: application/json"
+python endpoint_checker.py api_endpoints.txt --auth "user:pass" --header "Content-Type: application/json"
 
 # POST requests to API endpoints
-python url_checker.py api_urls.txt --method POST --header "Authorization: Bearer token123"
+python endpoint_checker.py api_urls.txt --method POST --header "Authorization: Bearer token123"
 ```
 
 ### Monitoring
 ```bash
 # Regular uptime monitoring
-python url_checker.py production_urls.txt --append -q -o uptime_$(date +%Y%m%d).txt
+python endpoint_checker.py production_urls.txt --append -q -o uptime_$(date +%Y%m%d).txt
 ```
 
 ## Output Files
@@ -215,20 +232,20 @@ Output Files:
 ```bash
 # Generate URLs with waymore, then validate
 waymore -i target.com -oU urls.txt
-python url_checker.py urls.txt -t 20 --quiet -o live_urls.txt
+python endpoint_checker.py urls.txt -t 20 --quiet -o live_urls.txt
 ```
 
 **Filter Active URLs:**
 ```bash
 # Get only active URLs for further processing
-python url_checker.py input.txt --quiet
+python endpoint_checker.py input.txt --quiet
 cat url_check_results_active.txt | other-security-tool
 ```
 
 **Continuous Monitoring:**
 ```bash
 # Monitor URLs and alert on changes
-python url_checker.py critical_urls.txt --append -q
+python endpoint_checker.py critical_urls.txt --append -q
 # Process results with monitoring system
 ```
 
@@ -237,7 +254,7 @@ python url_checker.py critical_urls.txt --append -q
 ### Custom Headers for Specific Applications
 ```bash
 # Bypass basic protections
-python url_checker.py urls.txt \
+python endpoint_checker.py urls.txt \
   --header "X-Forwarded-For: 127.0.0.1" \
   --header "X-Real-IP: 127.0.0.1" \
   --user-agent "Mozilla/5.0 (compatible; SecurityScanner)"
@@ -246,21 +263,25 @@ python url_checker.py urls.txt \
 ### High-Performance Batch Processing
 ```bash
 # Maximum performance for large URL lists
-python url_checker.py huge_list.txt -t 50 --method HEAD --timeout 3 --connect-timeout 1
+python endpoint_checker.py huge_list.txt -t 50 --method HEAD --timeout 3 --connect-timeout 1
 ```
 
 ### Detailed Analysis Mode
 ```bash
 # Full analysis with maximum information
-python url_checker.py urls.txt --verbose --json -o detailed_analysis.json -r 3
+python endpoint_checker.py urls.txt --verbose --json -o detailed_analysis.json -r 3
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-**"curl: command not found"**
-- Install curl: `sudo apt install curl` (Ubuntu/Debian) or `brew install curl` (macOS)
+**"ModuleNotFoundError: No module named 'requests'"**
+- Install dependencies: `pip install -r requirements.txt`
+
+**Private IP addresses being blocked**
+- This is a security feature to prevent SSRF attacks
+- Only public IP addresses and domains are allowed
 
 **High memory usage**
 - Reduce thread count: `-t 5`
@@ -273,6 +294,10 @@ python url_checker.py urls.txt --verbose --json -o detailed_analysis.json -r 3
 **Permission denied on output files**
 - Check directory permissions
 - Use different output location: `-o /tmp/results.txt`
+
+**SSL certificate verification errors**
+- The tool enforces SSL verification for security
+- For testing only, you can modify the code to disable verification (not recommended)
 
 ### Performance Tuning
 

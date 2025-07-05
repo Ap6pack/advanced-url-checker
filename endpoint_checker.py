@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-"Advanced URL Availability Checker
-Checks URLs for availability with comprehensive error handling, retry logic, and progress tracking."
+Advanced URL Availability Checker
+Checks URLs for availability with comprehensive error handling, retry logic, and progress tracking.
 """
 
-import subprocess
 import argparse
 import json
 import logging
@@ -15,7 +14,38 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from threading import Lock
 from urllib.parse import urlparse
-import re
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+from ipaddress import ip_address, ip_network, AddressValueError
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import validators
+from dotenv import load_dotenv
+from colorama import init, Fore, Style
+from tqdm import tqdm
+
+# Initialize colorama for cross-platform colored output
+init(autoreset=True)
+
+# Load environment variables
+load_dotenv()
+
+# Security constants
+BLOCKED_NETWORKS = [
+    ip_network('10.0.0.0/8'),
+    ip_network('172.16.0.0/12'),
+    ip_network('192.168.0.0/16'),
+    ip_network('127.0.0.0/8'),
+    ip_network('169.254.0.0/16'),  # Link-local
+    ip_network('::1/128'),  # IPv6 localhost
+    ip_network('fc00::/7'),  # IPv6 private
+]
+
+MAX_URL_LENGTH = 2048
+MAX_REDIRECTS = 10
+
 
 class URLChecker:
     """Main class for checking URL availability with comprehensive error handling."""
@@ -36,18 +66,73 @@ class URLChecker:
         }
         self.file_lock = Lock()
         self.setup_logging()
+        self.session = self._create_session()
+        self.progress_bar = None
         
+    def _create_session(self) -> requests.Session:
+        """Create a requests session with security features and connection pooling."""
+        session = requests.Session()
+        
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=0,  # We handle retries manually
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "POST"]
+        )
+        
+        # Configure adapter with connection pooling
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=min(self.config.threads * 2, 100),
+            pool_maxsize=min(self.config.threads * 2, 100),
+            pool_block=False
+        )
+        
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        
+        # Set default headers
+        session.headers.update({
+            'User-Agent': self.config.user_agent,
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        })
+        
+        # Add custom headers
+        for header in self.config.headers:
+            if ':' in header:
+                key, value = header.split(':', 1)
+                session.headers[key.strip()] = value.strip()
+        
+        # Configure authentication
+        if self.config.auth:
+            username, password = self.config.auth.split(':', 1)
+            session.auth = (username, password)
+        
+        # Security: Don't follow redirects automatically (we'll handle it)
+        # Note: Setting max_redirects doesn't affect allow_redirects=False in requests
+        
+        # Always verify SSL certificates for security
+        session.verify = True
+        
+        return session
+    
     def setup_logging(self):
         """Configure logging based on verbosity level."""
         log_level = logging.DEBUG if self.config.verbose else logging.INFO
         if self.config.quiet:
             log_level = logging.WARNING
             
+        # Sanitize output file path
+        safe_output_file = Path(self.config.output_file).name
+        
         logging.basicConfig(
             level=log_level,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(f"{self.config.output_file}.log"),
+                logging.FileHandler(f"{safe_output_file}.log"),
                 logging.StreamHandler(sys.stdout) if not self.config.quiet else logging.NullHandler()
             ]
         )
@@ -80,15 +165,41 @@ class URLChecker:
         self.logger.info(f"Loaded {len(urls)} URLs to test")
         return urls
         
-    def validate_url(self, url):
-        """Validate URL format."""
+    def validate_url(self, url: str) -> bool:
+        """Validate URL format with security checks."""
         try:
             # Add http:// if no scheme provided
             if not url.startswith(('http://', 'https://')):
                 url = f"http://{url}"
+            
+            # Check URL length
+            if len(url) > MAX_URL_LENGTH:
+                self.logger.warning(f"URL too long: {url[:50]}...")
+                return False
+            
+            # Use validators library for proper validation
+            if not validators.url(url):
+                return False
+            
+            # Parse and check for private IPs
             parsed = urlparse(url)
-            return bool(parsed.netloc)
-        except:
+            
+            # Check if hostname is an IP address
+            try:
+                ip = ip_address(parsed.hostname)
+                # Block private/local IP addresses
+                for network in BLOCKED_NETWORKS:
+                    if ip in network:
+                        self.logger.warning(f"Blocked private IP: {url}")
+                        return False
+            except (ValueError, AddressValueError, TypeError):
+                # Not an IP address, continue with domain validation
+                pass
+            
+            return True
+            
+        except Exception as e:
+            self.logger.debug(f"URL validation error: {e}")
             return False
             
     def normalize_url(self, url):
@@ -97,32 +208,34 @@ class URLChecker:
             return f"http://{url}"
         return url
         
-    def classify_error(self, stderr, returncode):
-        """Classify curl errors based on stderr output and return codes."""
-        stderr_lower = stderr.lower()
+    def classify_error(self, exception: Exception) -> str:
+        """Classify errors based on exception type."""
+        error_str = str(exception).lower()
+        exception_type = type(exception).__name__
         
         # DNS resolution errors
-        if any(phrase in stderr_lower for phrase in [
-            'could not resolve host', 'name or service not known', 
-            'nodename nor servname provided', 'temporary failure in name resolution'
-        ]):
+        if 'nodename nor servname provided' in error_str or \
+           'name or service not known' in error_str or \
+           'getaddrinfo failed' in error_str or \
+           'Failed to resolve' in error_str:
             return 'DNS_ERROR'
             
         # Connection errors
-        elif any(phrase in stderr_lower for phrase in [
-            'connection refused', 'connection timed out', 'no route to host',
-            'network is unreachable', 'connection reset by peer'
-        ]):
+        elif 'connection refused' in error_str or \
+             'connection reset' in error_str or \
+             'connection aborted' in error_str or \
+             isinstance(exception, requests.exceptions.ConnectionError):
             return 'CONNECTION_ERROR'
             
         # SSL/TLS errors
-        elif any(phrase in stderr_lower for phrase in [
-            'ssl', 'tls', 'certificate', 'handshake', 'peer certificate'
-        ]):
+        elif 'ssl' in error_str or \
+             'certificate' in error_str or \
+             isinstance(exception, requests.exceptions.SSLError):
             return 'SSL_ERROR'
             
         # Timeout errors
-        elif 'timeout' in stderr_lower or returncode == 28:
+        elif isinstance(exception, requests.exceptions.Timeout) or \
+             'timeout' in error_str:
             return 'TIMEOUT'
             
         # Other errors
@@ -164,86 +277,83 @@ class URLChecker:
                         'timestamp': datetime.now().isoformat()
                     }
                     
-    def test_url_single(self, url, attempt_num):
-        """Test a single URL using curl."""
+    def test_url_single(self, url: str, attempt_num: int) -> Dict[str, Any]:
+        """Test a single URL using requests library with security features."""
         start_time = time.time()
         
-        # Build curl command
-        command = [
-            "curl", "-s", "-o", "/dev/null", "-L",
-            "-H", f"User-Agent: {self.config.user_agent}",
-            "-w", "HTTP_CODE:%{http_code}|TIME:%{time_total}|SIZE:%{size_download}",
-            "--connect-timeout", str(self.config.connect_timeout),
-            "--max-time", str(self.config.timeout)
-        ]
-        
-        # Add method-specific options
-        if self.config.method == 'HEAD':
-            command.append("-I")
-        elif self.config.method == 'POST':
-            command.extend(["-X", "POST"])
-            
-        # Add custom headers
-        for header in self.config.headers:
-            command.extend(["-H", header])
-            
-        # Add authentication if provided
-        if self.config.auth:
-            command.extend(["-u", self.config.auth])
-            
-        command.append(url)
-        
         try:
-            result = subprocess.run(
-                command, 
-                capture_output=True, 
-                text=True, 
-                timeout=self.config.timeout + 5  # Give subprocess extra time
-            )
-            
-            response_time = time.time() - start_time
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
-            
-            # Parse curl output
-            http_code = 'N/A'
-            curl_time = 'N/A'
-            size = 'N/A'
-            
-            if 'HTTP_CODE:' in stdout:
-                parts = stdout.split('|')
-                for part in parts:
-                    if part.startswith('HTTP_CODE:'):
-                        http_code = part.split(':')[1]
-                    elif part.startswith('TIME:'):
-                        curl_time = part.split(':')[1]
-                    elif part.startswith('SIZE:'):
-                        size = part.split(':')[1]
-            
-            # Determine status
-            if result.returncode == 0 and http_code.isdigit():
-                status = 'ACTIVE' if int(http_code) < 400 else 'INACTIVE'
-                error_type = None
-                error_message = None
-            else:
-                status = 'ERROR'
-                error_type = self.classify_error(stderr, result.returncode)
-                error_message = stderr or f"Process returned code {result.returncode}"
-                
-            return {
-                'url': url,
-                'status': status,
-                'http_code': http_code,
-                'response_time': curl_time,
-                'actual_time': f"{response_time:.2f}s",
-                'size': size,
-                'error_type': error_type,
-                'error_message': error_message,
-                'attempt': attempt_num,
-                'timestamp': datetime.now().isoformat()
+            # Prepare request parameters
+            request_params = {
+                'timeout': (self.config.connect_timeout, self.config.timeout),
+                'allow_redirects': False,  # Handle redirects manually for security
+                'stream': True,  # Don't download entire body for HEAD requests
+                'verify': True,  # Always verify SSL certificates
             }
             
-        except subprocess.TimeoutExpired:
+            # Make the request based on method
+            if self.config.method == 'HEAD':
+                response = self.session.head(url, **request_params)
+            elif self.config.method == 'POST':
+                response = self.session.post(url, **request_params)
+            else:  # GET
+                response = self.session.get(url, **request_params)
+            
+            # Calculate response time
+            response_time = time.time() - start_time
+            
+            # Handle redirects manually with security checks
+            redirect_count = 0
+            final_url = url
+            
+            while response.is_redirect and redirect_count < MAX_REDIRECTS:
+                redirect_url = response.headers.get('Location')
+                if not redirect_url:
+                    break
+                    
+                # Make redirect URL absolute
+                redirect_url = requests.compat.urljoin(url, redirect_url)
+                
+                # Validate redirect URL for security
+                if not self.validate_url(redirect_url):
+                    self.logger.warning(f"Blocked redirect to invalid URL: {redirect_url}")
+                    break
+                
+                # Follow redirect
+                if self.config.method == 'HEAD':
+                    response = self.session.head(redirect_url, **request_params)
+                else:
+                    response = self.session.get(redirect_url, **request_params)
+                
+                final_url = redirect_url
+                redirect_count += 1
+            
+            # Get response size (for GET requests)
+            size = '0'
+            if self.config.method == 'GET' and response.headers.get('content-length'):
+                size = response.headers.get('content-length', '0')
+            
+            # Determine status
+            http_code = str(response.status_code)
+            if response.status_code < 400:
+                status = 'ACTIVE'
+            else:
+                status = 'INACTIVE'
+            
+            return {
+                'url': url,
+                'final_url': final_url,
+                'status': status,
+                'http_code': http_code,
+                'response_time': f"{response_time:.3f}",
+                'size': size,
+                'error_type': None,
+                'error_message': None,
+                'attempt': attempt_num,
+                'timestamp': datetime.now().isoformat(),
+                'redirects': redirect_count
+            }
+            
+        except requests.exceptions.Timeout:
             return {
                 'url': url,
                 'status': 'TIMEOUT',
@@ -251,6 +361,19 @@ class URLChecker:
                 'response_time': f">{self.config.timeout}s",
                 'error_type': 'TIMEOUT',
                 'error_message': 'Request timed out',
+                'attempt': attempt_num,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            error_type = self.classify_error(e)
+            return {
+                'url': url,
+                'status': 'ERROR',
+                'http_code': 'N/A',
+                'response_time': f"{time.time() - start_time:.3f}",
+                'error_type': error_type,
+                'error_message': str(e),
                 'attempt': attempt_num,
                 'timestamp': datetime.now().isoformat()
             }
@@ -300,27 +423,27 @@ class URLChecker:
                 with open(f"{self.config.output_file}_inactive.txt", 'a') as f:
                     f.write(f"{result['url']}\n")
                     
-    def show_progress(self):
-        """Display progress information."""
-        if self.config.quiet:
-            return
+    def update_progress_bar(self):
+        """Update the progress bar with current stats."""
+        if self.progress_bar and not self.config.quiet:
+            # Update progress bar
+            self.progress_bar.update(1)
             
-        processed = self.stats['processed']
-        total = self.stats['total']
-        
-        if processed == 0:
-            return
+            # Update description with colored stats
+            active_color = Fore.GREEN if self.stats['active'] > 0 else Fore.WHITE
+            error_color = Fore.RED if (self.stats['timeouts'] + self.stats['dns_errors'] + 
+                                      self.stats['connection_errors'] + self.stats['ssl_errors'] + 
+                                      self.stats['other_errors']) > 0 else Fore.WHITE
             
-        elapsed = time.time() - self.stats['start_time']
-        rate = processed / elapsed if elapsed > 0 else 0
-        eta = (total - processed) / rate if rate > 0 else 0
-        
-        progress = f"Progress: {processed}/{total} ({processed/total*100:.1f}%) "
-        progress += f"| Active: {self.stats['active']} "
-        progress += f"| Rate: {rate:.1f}/s "
-        progress += f"| ETA: {eta/60:.1f}m"
-        
-        print(f"\r{progress}", end='', flush=True)
+            total_errors = (self.stats['timeouts'] + self.stats['dns_errors'] + 
+                           self.stats['connection_errors'] + self.stats['ssl_errors'] + 
+                           self.stats['other_errors'])
+            
+            desc = (f"{active_color}Active: {self.stats['active']}{Style.RESET_ALL} | "
+                   f"Inactive: {self.stats['inactive']} | "
+                   f"{error_color}Errors: {total_errors}{Style.RESET_ALL}")
+            
+            self.progress_bar.set_description(desc)
         
     def print_summary(self):
         """Print final summary statistics."""
@@ -409,6 +532,16 @@ Output Files:
         self.logger.info(f"Starting URL check with {self.config.threads} threads")
         self.stats['start_time'] = time.time()
         
+        # Create progress bar if not in quiet mode
+        if not self.config.quiet:
+            self.progress_bar = tqdm(
+                total=len(urls),
+                desc="Processing URLs",
+                unit="url",
+                ncols=100,
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+            )
+        
         # Process URLs with ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=self.config.threads) as executor:
             # Submit all tasks
@@ -420,9 +553,8 @@ Output Files:
                 self.update_stats(result)
                 self.write_result(result)
                 
-                # Show progress every 10 completed requests
-                if self.stats['processed'] % 10 == 0:
-                    self.show_progress()
+                # Update progress bar
+                self.update_progress_bar()
                     
                 # Log individual results in verbose mode
                 if self.config.verbose:
@@ -430,9 +562,12 @@ Output Files:
                     if result['http_code'] != 'N/A':
                         status_msg += f" (HTTP {result['http_code']})"
                     self.logger.debug(status_msg)
-                    
-        # Final progress update and summary
-        self.show_progress()
+        
+        # Close progress bar
+        if self.progress_bar:
+            self.progress_bar.close()
+            
+        # Final summary
         self.print_summary()
 
 

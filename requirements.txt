@@ -1,0 +1,5 @@
+requests>=2.31.0  # Replace curl subprocess
+validators>=0.22.0  # Better URL validation
+python-dotenv>=1.0.0  # Environment configuration
+colorama>=0.4.6  # Cross-platform colored output
+tqdm>=4.66.1  # Better progress bars

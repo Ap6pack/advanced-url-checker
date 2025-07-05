@@ -6,8 +6,9 @@ We actively support the following versions of the Advanced URL Availability Chec
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.3.x   | :white_check_mark: |
 | 1.2.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
+| 1.1.x   | :x:                |
 | 1.0.x   | :x:                |
 | < 1.0   | :x:                |
 
@@ -74,28 +75,37 @@ This tool is designed for legitimate security testing and web reconnaissance. Pl
 - Output files should be secured and cleaned up after use
 
 #### Sensitive Information
-- **Authentication**: Credentials are passed directly to curl and not stored
+- **Authentication**: Credentials are handled securely by the requests library
 - **Headers**: Custom headers may contain sensitive tokens - review logs carefully
 - **URLs**: URLs in input files may contain sensitive paths or parameters
+- **No Credential Storage**: Authentication data is never written to disk or logs
 
 ### Security Features
 
-#### Input Validation
-- URL format validation and normalization
-- Command-line argument validation
-- File path validation and sanitization
-- Protection against command injection in curl parameters
+#### Advanced Input Validation
+- Comprehensive URL validation using the `validators` library
+- Blocks private and local IP addresses to prevent SSRF attacks
+- URL length limits (MAX_URL_LENGTH = 2048) to prevent buffer overflows
+- Path traversal protection using `pathlib` for all file operations
+- Strict validation of all user inputs
 
-#### Safe Subprocess Execution
-- Controlled subprocess execution with timeouts
-- No shell interpretation of user input
-- Secure parameter passing to curl
-- Proper handling of subprocess output and errors
+#### Secure HTTP Implementation
+- Uses the `requests` library instead of subprocess/curl (eliminates command injection)
+- Enforces SSL/TLS certificate verification
+- Connection pooling with proper resource limits
+- Manual redirect handling with security validation for each redirect
+- Protection against redirect loops (MAX_REDIRECTS = 10)
+
+#### SSRF Protection
+- Blocks all private IP ranges (10.x.x.x, 192.168.x.x, 127.x.x.x, 172.16.x.x)
+- Blocks link-local addresses (169.254.x.x)
+- Blocks IPv6 localhost and private ranges
+- Validates redirect destinations before following
 
 #### Thread Safety
-- Thread-safe file operations
-- Proper resource management
+- Thread-safe file operations with proper locking
 - Safe concurrent access to shared data structures
+- Resource pooling with connection limits
 
 ## Known Security Considerations
 
