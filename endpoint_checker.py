@@ -132,7 +132,7 @@ class URLChecker:
             level=log_level,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(f"{safe_output_file}.log"),
+                logging.FileHandler(f"log/{safe_output_file}.log"),
                 logging.StreamHandler(sys.stdout) if not self.config.quiet else logging.NullHandler()
             ]
         )
@@ -479,7 +479,7 @@ Output Files:
             print(summary)
             
         # Write summary to log
-        self.logger.info("Processing completed" + summary)
+        self.logger.info("Processing completed")
         
     def clear_output_files(self):
         """Clear previous output files."""
@@ -588,8 +588,8 @@ Examples:
     
     # Input/Output options
     parser.add_argument('input_file', help='Input file containing URLs (one per line)')
-    parser.add_argument('-o', '--output', dest='output_file', default='url_check_results.txt',
-                       help='Output file for results (default: url_check_results.txt)')
+    parser.add_argument('-o', '--output', dest='output_file', default='results/url_check_results.txt',
+                       help='Output file for results (default: results/url_check_results.txt)')
     parser.add_argument('--json', action='store_true', help='Output results in JSON format')
     parser.add_argument('--append', action='store_true', help='Append to existing output files')
     

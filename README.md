@@ -84,7 +84,7 @@ python endpoint_checker.py urls.txt
 python endpoint_checker.py urls.txt -t 20
 
 # JSON output with custom filename
-python endpoint_checker.py urls.txt -o results.json --json
+python endpoint_checker.py urls.txt -o results/results.json --json
 ```
 
 ### Input File Format
@@ -102,7 +102,7 @@ URLs without schemes will automatically get `http://` prepended.
 
 ### Input/Output
 ```bash
--o, --output FILE       Output file for results (default: url_check_results.txt)
+-o, --output FILE       Output file for results (default: results/url_check_results.txt)
 --json                  Output results in JSON format
 --append                Append to existing output files instead of overwriting
 ```
@@ -138,13 +138,13 @@ URLs without schemes will automatically get `http://` prepended.
 python endpoint_checker.py waymore_results.txt -t 15 -r 3 --quiet
 
 # Fast connectivity check with HEAD requests
-python endpoint_checker.py targets.txt --method HEAD -t 25 -o connectivity.txt
+python endpoint_checker.py targets.txt --method HEAD -t 25 -o results/connectivity.txt
 ```
 
 ### Link Validation
 ```bash
 # Comprehensive check with detailed logging
-python endpoint_checker.py website_links.txt --verbose -o validation_report.json --json
+python endpoint_checker.py website_links.txt --verbose -o results/validation_report.json --json
 
 # Quick validation with custom timeout
 python endpoint_checker.py links.txt --timeout 5 --connect-timeout 2
@@ -162,19 +162,21 @@ python endpoint_checker.py api_urls.txt --method POST --header "Authorization: B
 ### Monitoring
 ```bash
 # Regular uptime monitoring
-python endpoint_checker.py production_urls.txt --append -q -o uptime_$(date +%Y%m%d).txt
+python endpoint_checker.py production_urls.txt --append -q -o results/uptime_$(date +%Y%m%d).txt
 ```
 
 ## Output Files
 
-The tool generates several output files:
+The tool generates several output files organized in dedicated directories:
 
 | File | Description |
 |------|-------------|
-| `results.txt` | Main results with status, HTTP codes, and timing |
-| `results_active.txt` | Only active/reachable URLs |
-| `results_inactive.txt` | Only inactive/unreachable URLs |
-| `results.txt.log` | Detailed execution log |
+| `results/url_check_results.txt` | Main results with status, HTTP codes, and timing |
+| `results/url_check_results_active.txt` | Only active/reachable URLs |
+| `results/url_check_results_inactive.txt` | Only inactive/unreachable URLs |
+| `log/url_check_results.txt.log` | Detailed execution log |
+
+**Note**: The tool automatically creates `log/` and `results/` directories if they don't exist.
 
 ### Sample Output
 ```
@@ -218,10 +220,10 @@ Processing Time: 45.2s
 Processing Rate: 22.1 URLs/s
 
 Output Files:
-- Main results: results.txt
-- Active URLs: results_active.txt
-- Inactive URLs: results_inactive.txt
-- Log file: results.txt.log
+- Main results: results/url_check_results.txt
+- Active URLs: results/url_check_results_active.txt
+- Inactive URLs: results/url_check_results_inactive.txt
+- Log file: log/url_check_results.txt.log
 ```
 
 ## Integration Examples
@@ -232,14 +234,14 @@ Output Files:
 ```bash
 # Generate URLs with waymore, then validate
 waymore -i target.com -oU urls.txt
-python endpoint_checker.py urls.txt -t 20 --quiet -o live_urls.txt
+python endpoint_checker.py urls.txt -t 20 --quiet -o results/live_urls.txt
 ```
 
 **Filter Active URLs:**
 ```bash
 # Get only active URLs for further processing
 python endpoint_checker.py input.txt --quiet
-cat url_check_results_active.txt | other-security-tool
+cat results/url_check_results_active.txt | other-security-tool
 ```
 
 **Continuous Monitoring:**
@@ -269,7 +271,7 @@ python endpoint_checker.py huge_list.txt -t 50 --method HEAD --timeout 3 --conne
 ### Detailed Analysis Mode
 ```bash
 # Full analysis with maximum information
-python endpoint_checker.py urls.txt --verbose --json -o detailed_analysis.json -r 3
+python endpoint_checker.py urls.txt --verbose --json -o results/detailed_analysis.json -r 3
 ```
 
 ## Troubleshooting
@@ -293,6 +295,7 @@ python endpoint_checker.py urls.txt --verbose --json -o detailed_analysis.json -
 
 **Permission denied on output files**
 - Check directory permissions
+- Ensure `log/` and `results/` directories exist and are writable
 - Use different output location: `-o /tmp/results.txt`
 
 **SSL certificate verification errors**

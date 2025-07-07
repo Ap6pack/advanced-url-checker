@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-07-07
+
+### Changed
+- Reorganized output structure with dedicated `log/` and `results/` directories
+- Updated default output path to `results/url_check_results.txt` for better organization
+- Log files now stored in `log/` directory instead of the root directory
+
+### Fixed
+- Fixed duplicate summary output issue where results were printed twice to console
+- Summary is now only displayed once in the console output
+
+### Added
+- Created dedicated directories for logs and results to improve project organization
+
 ## [1.3.0] - 2025-07-04
 
 ### Security
